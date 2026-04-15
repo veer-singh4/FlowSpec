@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/veer-singh4/FlowSpec/internal/parser"
 )
@@ -55,7 +56,7 @@ func ParseDSL(filePath string) (*FlowSpec, error) {
 	return convertSpec(parsed), nil
 }
 
-// convertSpec converts the parser AST into engine FlowSpec types.
+func convertSpec(ps *parser.Spec) *FlowSpec {
 	if ps == nil {
 		return &FlowSpec{Apps: []AppBlock{}, Params: map[string]string{}}
 	}
