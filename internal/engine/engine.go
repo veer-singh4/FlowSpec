@@ -35,12 +35,14 @@ type AppBlock struct {
 	Database  string           `json:"database"`
 	Modules   []ModuleConfig   `json:"modules"`
 	Resources []ResourceConfig `json:"resources"`
-	Line      int              `json:"line"`
+	Params    map[string]string  `json:"params"`
+	Line      int               `json:"line"`
 }
 
 // FlowSpec is the top-level parsed representation of a .ufs file.
 type FlowSpec struct {
-	Apps []AppBlock `json:"apps"`
+	Apps   []AppBlock        `json:"apps"`
+	Params map[string]string `json:"params"`
 }
 
 // ParseDSL reads a .ufs file and returns a FlowSpec.
@@ -54,17 +56,20 @@ func ParseDSL(filePath string) (*FlowSpec, error) {
 }
 
 // convertSpec converts the parser AST into engine FlowSpec types.
-func convertSpec(ps *parser.Spec) *FlowSpec {
 	if ps == nil {
-		return &FlowSpec{Apps: []AppBlock{}}
+		return &FlowSpec{Apps: []AppBlock{}, Params: map[string]string{}}
 	}
-
-	spec := &FlowSpec{Apps: make([]AppBlock, 0, len(ps.Apps))}
+ 
+	spec := &FlowSpec{
+		Apps:   make([]AppBlock, 0, len(ps.Apps)),
+		Params: ps.Params,
+	}
 	for _, pa := range ps.Apps {
 		app := AppBlock{
 			Name:      pa.Name,
 			Modules:   make([]ModuleConfig, 0, len(pa.Modules)),
 			Resources: make([]ResourceConfig, 0, len(pa.Resources)),
+			Params:    pa.Params,
 			Line:      pa.Line,
 		}
 
@@ -96,7 +101,58 @@ func convertSpec(ps *parser.Spec) *FlowSpec {
 		spec.Apps = append(spec.Apps, app)
 	}
 
+	// Resolve variables after everything is loaded
+	ResolveVariables(spec)
+
 	return spec
+}
+
+// ResolveVariables interpolates ${param.name} in all configs.
+func ResolveVariables(spec *FlowSpec) {
+	for i := range spec.Apps {
+		app := &spec.Apps[i]
+
+		// Combine global params and app-local params
+		allParams := make(map[string]string)
+		for k, v := range spec.Params {
+			allParams[k] = v
+		}
+		for k, v := range app.Params {
+			allParams[k] = v
+		}
+
+		// Interpolate in cloud config
+		if app.Cloud != nil {
+			app.Cloud.Provider = interpolate(app.Cloud.Provider, allParams)
+			app.Cloud.Region = interpolate(app.Cloud.Region, allParams)
+		}
+
+		// Interpolate in modules
+		for j := range app.Modules {
+			m := &app.Modules[j]
+			for k, v := range m.Config {
+				m.Config[k] = interpolate(v, allParams)
+			}
+		}
+
+		// Interpolate in resources
+		for j := range app.Resources {
+			r := &app.Resources[j]
+			for k, v := range r.Config {
+				r.Config[k] = interpolate(v, allParams)
+			}
+		}
+	}
+}
+
+func interpolate(val string, params map[string]string) string {
+	// Simple implementation: find ${param.NAME} and replace with params[NAME]
+	// Optimized for MVP.
+	for k, v := range params {
+		placeholder := fmt.Sprintf("${param.%s}", k)
+		val = strings.ReplaceAll(val, placeholder, v)
+	}
+	return val
 }
 
 // BuildSummary returns a human-readable summary of the spec for CLI output.

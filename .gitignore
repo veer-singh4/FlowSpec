@@ -1,6 +1,6 @@
 # Build artifacts
-flow.exe
-flow
+/flow.exe
+/flow
 dist/
 
 # Local workspace and cache

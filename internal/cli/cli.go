@@ -144,10 +144,28 @@ func handlePlan(args []string) error {
 
 	// Parse with native Go parser
 	fmt.Printf("⟳ Parsing %s ...\n", args[0])
+	
+	// Auto-load .ufsparam files from current directory
+	params, _ := filepath.Glob("*.ufsparam")
+	
 	spec, err := engine.ParseDSL(args[0])
 	if err != nil {
 		return err
 	}
+
+	// Load global params from .ufsparam files
+	for _, pf := range params {
+		fmt.Printf("  • Loading parameters from %s\n", pf)
+		ps, err := engine.ParseDSL(pf)
+		if err == nil {
+			for k, v := range ps.Params {
+				spec.Params[k] = v
+			}
+		}
+	}
+
+	// Resolve variables after loading all params
+	engine.ResolveVariables(spec)
 
 	// Resolve and download modules
 	if err := resolveModules(spec, cfg); err != nil {
@@ -207,10 +225,26 @@ func handleDeploy(args []string) error {
 	}
 
 	fmt.Printf("⟳ Parsing %s ...\n", args[0])
+	
+	// Auto-load .ufsparam files from current directory
+	params, _ := filepath.Glob("*.ufsparam")
+	
 	spec, err := engine.ParseDSL(args[0])
 	if err != nil {
 		return err
 	}
+
+	for _, pf := range params {
+		fmt.Printf("  • Loading parameters from %s\n", pf)
+		ps, err := engine.ParseDSL(pf)
+		if err == nil {
+			for k, v := range ps.Params {
+				spec.Params[k] = v
+			}
+		}
+	}
+
+	engine.ResolveVariables(spec)
 
 	if err := resolveModules(spec, cfg); err != nil {
 		return err

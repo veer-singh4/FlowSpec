@@ -28,6 +28,8 @@ const (
 	TokenDot
 	TokenAt
 	TokenNewline
+	TokenParam
+	TokenInclude
 )
 
 func (t TokenType) String() string {
@@ -68,6 +70,10 @@ func (t TokenType) String() string {
 		return "AT"
 	case TokenNewline:
 		return "NEWLINE"
+	case TokenParam:
+		return "PARAMS"
+	case TokenInclude:
+		return "INCLUDE"
 	default:
 		return fmt.Sprintf("UNKNOWN(%d)", int(t))
 	}
@@ -283,6 +289,10 @@ func (l *Lexer) readIdentOrKeyword(line, col int) (Token, error) {
 		return Token{Type: TokenAs, Value: word, Line: line, Col: col}, nil
 	case "resource":
 		return Token{Type: TokenResource, Value: word, Line: line, Col: col}, nil
+	case "params":
+		return Token{Type: TokenParam, Value: word, Line: line, Col: col}, nil
+	case "include":
+		return Token{Type: TokenInclude, Value: word, Line: line, Col: col}, nil
 	case "true", "false":
 		return Token{Type: TokenBool, Value: word, Line: line, Col: col}, nil
 	default:
@@ -327,9 +337,9 @@ func isIdentChar(ch rune) bool {
 }
 
 func isValueChar(ch rune) bool {
-	return unicode.IsLetter(ch) || unicode.IsDigit(ch) || ch == '_' || ch == '-' || ch == '.' || ch == '/' || ch == ':'
+	return unicode.IsLetter(ch) || unicode.IsDigit(ch) || ch == '_' || ch == '-' || ch == '.' || ch == '/' || ch == ':' || ch == '$' || ch == '{' || ch == '}'
 }
 
 func isBareValueChar(ch rune) bool {
-	return unicode.IsLetter(ch) || unicode.IsDigit(ch) || ch == '_' || ch == '-' || ch == '.' || ch == '/' || ch == ':'
+	return unicode.IsLetter(ch) || unicode.IsDigit(ch) || ch == '_' || ch == '-' || ch == '.' || ch == '/' || ch == ':' || ch == '$' || ch == '{' || ch == '}'
 }

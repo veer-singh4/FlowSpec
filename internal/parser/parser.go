@@ -30,24 +30,26 @@ type ResourceSpec struct {
 	Line   int
 }
 
-// AppSpec describes a single app declaration.
 type AppSpec struct {
 	Name      string
 	Cloud     *CloudSpec
 	Modules   []ModuleSpec
 	Resources []ResourceSpec
+	Params    map[string]string
 	Line      int
 }
 
 // Spec is the top-level parsed representation of a .ufl file.
 type Spec struct {
 	Apps []AppSpec
+	Params map[string]string
 }
 
 // Parser is a recursive-descent parser for UniFlow (.ufl) files.
 type Parser struct {
-	tokens []Token
-	pos    int
+	tokens  []Token
+	pos     int
+	BaseDir string
 }
 
 // ParseFile reads a .ufl file and returns a Spec.
@@ -56,18 +58,20 @@ func ParseFile(filePath string) (*Spec, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read %s: %w", filePath, err)
 	}
-	return ParseSource(string(data))
+	p := &Parser{BaseDir: filepath.Dir(filePath)}
+	return p.ParseSource(string(data))
 }
 
 // ParseSource parses UniFlow source code and returns a Spec.
-func ParseSource(source string) (*Spec, error) {
+func (p *Parser) ParseSource(source string) (*Spec, error) {
 	lexer := NewLexer(source)
 	tokens, err := lexer.Tokenize()
 	if err != nil {
 		return nil, err
 	}
 
-	p := &Parser{tokens: tokens, pos: 0}
+	p.tokens = tokens
+	p.pos = 0
 	return p.parseSpec()
 }
 
@@ -96,7 +100,7 @@ func (p *Parser) expect(tt TokenType) (Token, error) {
 
 // parseSpec parses the top-level spec: zero or more app blocks.
 func (p *Parser) parseSpec() (*Spec, error) {
-	spec := &Spec{Apps: []AppSpec{}}
+	spec := &Spec{Apps: []AppSpec{}, Params: map[string]string{}}
 
 	for p.peek().Type != TokenEOF {
 		if p.peek().Type == TokenApp {
@@ -105,9 +109,26 @@ func (p *Parser) parseSpec() (*Spec, error) {
 				return nil, err
 			}
 			spec.Apps = append(spec.Apps, app)
+		} else if p.peek().Type == TokenParam {
+			params, err := p.parseParams()
+			if err != nil {
+				return nil, err
+			}
+			for k, v := range params {
+				spec.Params[k] = v
+			}
+		} else if p.peek().Type == TokenInclude {
+			incSpec, err := p.handleInclude()
+			if err != nil {
+				return nil, err
+			}
+			spec.Apps = append(spec.Apps, incSpec.Apps...)
+			for k, v := range incSpec.Params {
+				spec.Params[k] = v
+			}
 		} else {
 			tok := p.peek()
-			return nil, fmt.Errorf("line %d: expected 'app' but got %s (%q)", tok.Line, tok.Type, tok.Value)
+			return nil, fmt.Errorf("line %d: expected 'app' or 'params' but got %s (%q)", tok.Line, tok.Type, tok.Value)
 		}
 	}
 
@@ -134,8 +155,9 @@ func (p *Parser) parseApp() (AppSpec, error) {
 		Name:      nameTok.Value,
 		Modules:   []ModuleSpec{},
 		Resources: []ResourceSpec{},
+		Params:    map[string]string{},
 		Line:      appTok.Line,
-	}
+}
 
 	// Parse app body until '}'
 	for p.peek().Type != TokenRBrace {
@@ -162,6 +184,27 @@ func (p *Parser) parseApp() (AppSpec, error) {
 				return AppSpec{}, err
 			}
 			app.Resources = append(app.Resources, res)
+		case TokenParam:
+			params, err := p.parseParams()
+			if err != nil {
+				return AppSpec{}, err
+			}
+			for k, v := range params {
+				app.Params[k] = v
+			}
+		case TokenInclude:
+			incSpec, err := p.handleInclude()
+			if err != nil {
+				return AppSpec{}, err
+			}
+			// For includes inside an app, we only take resources and modules
+			for _, ia := range incSpec.Apps {
+				app.Modules = append(app.Modules, ia.Modules...)
+				app.Resources = append(app.Resources, ia.Resources...)
+				for k, v := range ia.Params {
+					app.Params[k] = v
+				}
+			}
 		default:
 			tok := p.peek()
 			return AppSpec{}, fmt.Errorf("line %d: unexpected %s (%q) in app block", tok.Line, tok.Type, tok.Value)
@@ -299,6 +342,46 @@ func (p *Parser) parseResource() (ResourceSpec, error) {
 		Config: config,
 		Line:   resTok.Line,
 	}, nil
+}
+
+func (p *Parser) handleInclude() (*Spec, error) {
+	p.advance() // consume 'include'
+	pathTok, err := p.expect(TokenString)
+	if err != nil {
+		return nil, fmt.Errorf("line %d: expected string after 'include'", p.peek().Line)
+	}
+
+	incPath := pathTok.Value
+	if !filepath.IsAbs(incPath) {
+		incPath = filepath.Join(p.BaseDir, incPath)
+	}
+
+	return ParseFile(incPath)
+}
+
+// parseVars parses: vars { <key> <value> ... }
+func (p *Parser) parseParams() (map[string]string, error) {
+	p.advance() // consume 'params'
+
+	if _, err := p.expect(TokenLBrace); err != nil {
+		return nil, fmt.Errorf("line %d: expected '{' after 'params'", p.peek().Line)
+	}
+
+	params := map[string]string{}
+	for p.peek().Type != TokenRBrace {
+		if p.peek().Type == TokenEOF {
+			return nil, fmt.Errorf("line %d: unclosed params block", p.peek().Line)
+		}
+
+		key, value, err := p.parseConfigPair()
+		if err != nil {
+			return nil, err
+		}
+		params[key] = value
+	}
+
+	p.advance() // consume '}'
+	return params, nil
 }
 
 // parseDottedIdent reads an identifier (the lexer already joins dotted names).
