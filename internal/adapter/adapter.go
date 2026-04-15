@@ -1,6 +1,6 @@
 package adapter
 
-import "flowspec/internal/engine"
+import "github.com/veer-singh4/FlowSpec/internal/engine"
 
 // IaCAdapter defines the contract for infrastructure backend adapters.
 // Each adapter translates FlowSpec into a specific IaC backend (Terraform, Pulumi, etc.).

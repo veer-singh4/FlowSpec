@@ -81,31 +81,29 @@ UniFlow resolves abstract module names to real Terraform modules:
 
 Custom mappings can be added via `.flow/modules.json`.
 
-## Install
+## Installation
+
+### Quick Install (One-liner)
+
+**Linux / macOS:**
+```bash
+curl -sSL https://raw.githubusercontent.com/veer-singh4/FlowSpec/main/install.sh | sh
+```
+
+**Windows (PowerShell):**
+```powershell
+iwr https://raw.githubusercontent.com/veer-singh4/FlowSpec/main/install.ps1 | iex
+```
+
+### Install via Go
+If you have Go 1.21+ installed, you can install directly from source:
+```bash
+go install github.com/veer-singh4/FlowSpec/cmd/flow@latest
+```
 
 ### Prerequisites
-
-- Go 1.21+
-- Terraform installed and in PATH
-
-### Build & Install
-
-```bash
-# Build
-go build -o flow.exe ./cmd/flow      # Windows
-go build -o flow ./cmd/flow           # Linux/macOS
-
-# Install (Windows PowerShell)
-New-Item -ItemType Directory -Force "$env:USERPROFILE\.flow-cli" | Out-Null
-Copy-Item flow.exe "$env:USERPROFILE\.flow-cli\flow.exe" -Force
-[Environment]::SetEnvironmentVariable("Path", "$([Environment]::GetEnvironmentVariable('Path','User'));$env:USERPROFILE\.flow-cli", "User")
-# Open a new terminal, then:
-flow version
-
-# Install (Linux/macOS)
-sudo mv flow /usr/local/bin/flow
-flow version
-```
+- [Terraform](https://www.terraform.io/downloads) installed and in your PATH.
+- (Optional) [Go 1.21+](https://golang.org/doc/install) if building from source.
 
 ### Cross-platform Release Binaries
 

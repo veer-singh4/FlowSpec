@@ -8,9 +8,9 @@ import (
 	"sort"
 	"strings"
 
-	"flowspec/internal/adapter"
-	"flowspec/internal/engine"
-	"flowspec/internal/modules"
+	"github.com/veer-singh4/FlowSpec/internal/adapter"
+	"github.com/veer-singh4/FlowSpec/internal/engine"
+	"github.com/veer-singh4/FlowSpec/internal/modules"
 )
 
 var _ adapter.IaCAdapter = (*Adapter)(nil)

@@ -9,12 +9,12 @@ import (
 	"sort"
 	"strings"
 
-	terraformadapter "flowspec/internal/adapter/terraform"
-	pulumiadapter "flowspec/internal/adapter/pulumi"
-	"flowspec/internal/adapter"
-	"flowspec/internal/engine"
-	"flowspec/internal/modules"
-	flowstate "flowspec/internal/state"
+	terraformadapter "github.com/veer-singh4/FlowSpec/internal/adapter/terraform"
+	pulumiadapter "github.com/veer-singh4/FlowSpec/internal/adapter/pulumi"
+	"github.com/veer-singh4/FlowSpec/internal/adapter"
+	"github.com/veer-singh4/FlowSpec/internal/engine"
+	"github.com/veer-singh4/FlowSpec/internal/modules"
+	flowstate "github.com/veer-singh4/FlowSpec/internal/state"
 )
 
 const (

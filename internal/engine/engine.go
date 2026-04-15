@@ -3,7 +3,7 @@ package engine
 import (
 	"fmt"
 
-	"flowspec/internal/parser"
+	"github.com/veer-singh4/FlowSpec/internal/parser"
 )
 
 // CloudConfig describes the target cloud provider and region.

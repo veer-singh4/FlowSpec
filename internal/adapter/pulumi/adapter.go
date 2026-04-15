@@ -3,8 +3,8 @@ package pulumi
 import (
 	"fmt"
 
-	"flowspec/internal/adapter"
-	"flowspec/internal/engine"
+	"github.com/veer-singh4/FlowSpec/internal/adapter"
+	"github.com/veer-singh4/FlowSpec/internal/engine"
 )
 
 var _ adapter.IaCAdapter = (*Adapter)(nil)

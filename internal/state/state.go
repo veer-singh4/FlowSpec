@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"flowspec/internal/engine"
+	"github.com/veer-singh4/FlowSpec/internal/engine"
 )
 
 type ResourceRecord struct {
