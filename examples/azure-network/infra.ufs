@@ -1,0 +1,81 @@
+# Azure Infrastructure Project
+#
+# This project creates:
+# - 1 Resource Group
+# - 2 VNets with subnets
+# - 2 Network Security Groups
+# - 1 Storage Account
+#
+# Run: flow plan infra.ufs
+
+app azure-network-infra {
+  cloud azure centralindia
+
+  # Resource Group - foundation for all resources
+  resource azurerm_resource_group as main-rg {
+    name azure-infra-rg
+    location centralindia
+  }
+
+  # VNet 1 - Production network
+  resource azurerm_virtual_network as prod-vnet {
+    name prod-vnet
+    address_space ["10.1.0.0/16"]
+    location centralindia
+    resource_group_name azure-infra-rg
+  }
+
+  # VNet 1 - Subnet: App tier
+  resource azurerm_subnet as prod-app-subnet {
+    name prod-app-subnet
+    resource_group_name azure-infra-rg
+    virtual_network_name prod-vnet
+    address_prefixes ["10.1.1.0/24"]
+  }
+
+  # VNet 1 - Subnet: Data tier
+  resource azurerm_subnet as prod-data-subnet {
+    name prod-data-subnet
+    resource_group_name azure-infra-rg
+    virtual_network_name prod-vnet
+    address_prefixes ["10.1.2.0/24"]
+  }
+
+  # VNet 2 - Staging network
+  resource azurerm_virtual_network as staging-vnet {
+    name staging-vnet
+    address_space ["10.2.0.0/16"]
+    location centralindia
+    resource_group_name azure-infra-rg
+  }
+
+  # VNet 2 - Subnet: App tier
+  resource azurerm_subnet as staging-app-subnet {
+    name staging-app-subnet
+    resource_group_name azure-infra-rg
+    virtual_network_name staging-vnet
+    address_prefixes ["10.2.1.0/24"]
+  }
+
+  # VNet 2 - Subnet: Data tier
+  resource azurerm_subnet as staging-data-subnet {
+    name staging-data-subnet
+    resource_group_name azure-infra-rg
+    virtual_network_name staging-vnet
+    address_prefixes ["10.2.2.0/24"]
+  }
+
+  # NSG for production app subnet
+  resource azurerm_network_security_group as prod-nsg {
+    name prod-app-nsg
+    location centralindia
+    resource_group_name azure-infra-rg
+  }
+
+  # NSG for staging app subnet
+  resource azurerm_network_security_group as staging-nsg {
+    name staging-app-nsg
+    location centralindia
+    resource_group_name azure-infra-rg
+  }
+}

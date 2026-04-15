@@ -1,0 +1,14 @@
+app payment-service {
+  cloud azure centralindia
+
+  use vm.basic as app-vm {
+    name payment-service-vm
+    vm_size Standard_B1s
+    admin_username adminuser
+  }
+
+  use network.vnet as app-network {
+    name payment-vnet
+    address_space ["10.20.0.0/16"]
+  }
+}

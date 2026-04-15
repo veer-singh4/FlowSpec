@@ -1,0 +1,17 @@
+app payment-service {
+  cloud aws ap-south-1
+
+  use vm.basic as app-vm {
+    name payment-service-vm
+    ami ami-0f5ee92e2d63afc18
+    instance_type t3.micro
+  }
+
+  use network.vpc as app-vpc {
+    name payment-vpc
+    cidr 10.10.0.0/16
+    azs ["ap-south-1a","ap-south-1b"]
+    private_subnets ["10.10.1.0/24","10.10.2.0/24"]
+    public_subnets ["10.10.101.0/24","10.10.102.0/24"]
+  }
+}

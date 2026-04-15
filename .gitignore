@@ -1,0 +1,14 @@
+# Build artifacts
+flow.exe
+flow
+dist/
+
+# Local workspace and cache
+.flow/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Go dependencies
+vendor/
