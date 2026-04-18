@@ -3,32 +3,26 @@ package pulumi
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
 
 	"github.com/veer-singh4/FlowSpec/internal/adapter"
-	terraformadapter "github.com/veer-singh4/FlowSpec/internal/adapter/terraform"
 	"github.com/veer-singh4/FlowSpec/internal/engine"
 )
 
 var _ adapter.IaCAdapter = (*Adapter)(nil)
 
-// Adapter provides a Pulumi-compatible backend.
-// For now it reuses the Terraform execution engine so the same .ufs spec works
-// without backend-specific hardcoding in user code.
+// Adapter generates and runs native Pulumi YAML from FlowSpec.
 type Adapter struct {
-	WorkDir     string
-	tfCompatDir string
-	tf          *terraformadapter.Adapter
+	WorkDir string
 }
 
-// New creates a Pulumi adapter in compatibility mode.
+// New creates a Pulumi adapter.
 func New(workDir string) *Adapter {
-	tfCompatDir := filepath.Join(workDir, "terraform")
-	return &Adapter{
-		WorkDir:     workDir,
-		tfCompatDir: tfCompatDir,
-		tf:          terraformadapter.New(tfCompatDir),
-	}
+	return &Adapter{WorkDir: workDir}
 }
 
 // Name returns the adapter name.
@@ -36,48 +30,350 @@ func (a *Adapter) Name() string {
 	return "pulumi"
 }
 
-// Init initializes Pulumi compatibility workspace and delegates to Terraform engine.
+// Init initializes native Pulumi project files and stack.
 func (a *Adapter) Init(config *engine.FlowSpec) error {
 	if err := a.ensureDirs(); err != nil {
 		return err
 	}
-	fmt.Println("ℹ Pulumi compatibility mode: executing via Terraform engine")
-	return a.tf.Init(config)
+	if config != nil {
+		if err := a.writePulumiFiles(config); err != nil {
+			return err
+		}
+	}
+	if err := a.ensureStack(); err != nil {
+		return err
+	}
+	return nil
 }
 
-// Plan previews changes using Pulumi compatibility mode.
+// Plan runs pulumi preview.
 func (a *Adapter) Plan(config *engine.FlowSpec) error {
 	if err := a.ensureDirs(); err != nil {
 		return err
 	}
-	fmt.Println("ℹ Pulumi compatibility mode: executing via Terraform engine")
-	return a.tf.Plan(config)
+	if err := a.writePulumiFiles(config); err != nil {
+		return err
+	}
+	if err := a.ensureStack(); err != nil {
+		return err
+	}
+	return a.runPulumi("preview", "--non-interactive")
 }
 
-// Apply executes changes using Pulumi compatibility mode.
+// Apply runs pulumi up.
 func (a *Adapter) Apply(config *engine.FlowSpec) error {
 	if err := a.ensureDirs(); err != nil {
 		return err
 	}
-	fmt.Println("ℹ Pulumi compatibility mode: executing via Terraform engine")
-	return a.tf.Apply(config)
+	if err := a.writePulumiFiles(config); err != nil {
+		return err
+	}
+	if err := a.ensureStack(); err != nil {
+		return err
+	}
+	return a.runPulumi("up", "--yes", "--non-interactive")
 }
 
-// Destroy tears down resources using Pulumi compatibility mode.
-func (a *Adapter) Destroy(config *engine.FlowSpec) error {
+// Destroy runs pulumi destroy.
+func (a *Adapter) Destroy(_ *engine.FlowSpec) error {
 	if err := a.ensureDirs(); err != nil {
 		return err
 	}
-	fmt.Println("ℹ Pulumi compatibility mode: executing via Terraform engine")
-	return a.tf.Destroy(config)
+	if err := a.ensureStack(); err != nil {
+		return err
+	}
+	return a.runPulumi("destroy", "--yes", "--non-interactive")
 }
 
 func (a *Adapter) ensureDirs() error {
 	if err := os.MkdirAll(a.WorkDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create pulumi workdir: %w", err)
 	}
-	if err := os.MkdirAll(a.tfCompatDir, 0o755); err != nil {
-		return fmt.Errorf("failed to create pulumi terraform-compat workdir: %w", err)
+	return nil
+}
+
+func (a *Adapter) ensureStack() error {
+	// Select default stack or create if missing.
+	if err := a.runPulumi("stack", "select", "dev"); err != nil {
+		if err2 := a.runPulumi("stack", "init", "dev"); err2 != nil {
+			return fmt.Errorf("failed to select/init pulumi stack: %w", err2)
+		}
 	}
 	return nil
+}
+
+func (a *Adapter) runPulumi(args ...string) error {
+	cmd := exec.Command("pulumi", args...)
+	cmd.Dir = a.WorkDir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("pulumi %s failed: %w", strings.Join(args, " "), err)
+	}
+	return nil
+}
+
+func (a *Adapter) writePulumiFiles(spec *engine.FlowSpec) error {
+	projectYAML, stackYAML, err := buildPulumiYAML(spec)
+	if err != nil {
+		return err
+	}
+
+	projectPath := filepath.Join(a.WorkDir, "Pulumi.yaml")
+	if err := os.WriteFile(projectPath, []byte(projectYAML), 0o644); err != nil {
+		return fmt.Errorf("failed to write %s: %w", projectPath, err)
+	}
+
+	stackPath := filepath.Join(a.WorkDir, "Pulumi.dev.yaml")
+	if err := os.WriteFile(stackPath, []byte(stackYAML), 0o644); err != nil {
+		return fmt.Errorf("failed to write %s: %w", stackPath, err)
+	}
+
+	return nil
+}
+
+func buildPulumiYAML(spec *engine.FlowSpec) (string, string, error) {
+	if spec == nil || len(spec.Apps) == 0 {
+		return "", "", fmt.Errorf("empty FlowSpec config")
+	}
+
+	provider, region, err := resolveCloud(spec)
+	if err != nil {
+		return "", "", err
+	}
+
+	// Native Pulumi currently handles resources only.
+	for _, app := range spec.Apps {
+		if len(app.Modules) > 0 {
+			return "", "", fmt.Errorf("pulumi backend currently does not support 'use module' blocks; convert modules to resource blocks")
+		}
+	}
+
+	var b strings.Builder
+	b.WriteString("name: flow-pulumi\n")
+	b.WriteString("runtime: yaml\n")
+	b.WriteString("description: Generated by FlowSpec native Pulumi adapter\n")
+	b.WriteString("resources:\n")
+
+	totalResources := 0
+	for _, app := range spec.Apps {
+		for _, res := range app.Resources {
+			totalResources++
+
+			token, propMap, err := mapResource(res.Type, provider)
+			if err != nil {
+				return "", "", fmt.Errorf("resource %s (%s): %w", res.Alias, res.Type, err)
+			}
+
+			logicalName := sanitize(app.Name + "-" + res.Alias)
+			b.WriteString("  ")
+			b.WriteString(logicalName)
+			b.WriteString(":\n")
+			b.WriteString("    type: ")
+			b.WriteString(token)
+			b.WriteString("\n")
+			b.WriteString("    properties:\n")
+
+			keys := sortedKeys(res.Config)
+			for _, key := range keys {
+				pkey := mapKey(key, propMap)
+				pval := inferYAMLScalarOrList(res.Config[key])
+				b.WriteString("      ")
+				b.WriteString(pkey)
+				b.WriteString(": ")
+				b.WriteString(pval)
+				b.WriteString("\n")
+			}
+		}
+	}
+
+	if totalResources == 0 {
+		return "", "", fmt.Errorf("no resource blocks found for native pulumi deployment")
+	}
+
+	stack := buildStackConfig(provider, region)
+	return b.String(), stack, nil
+}
+
+func buildStackConfig(provider, region string) string {
+	var b strings.Builder
+	b.WriteString("config:\n")
+	switch provider {
+	case "aws":
+		b.WriteString("  aws:region: ")
+		b.WriteString(strconv.Quote(region))
+		b.WriteString("\n")
+	case "azure":
+		// Azure Native uses per-resource location; auth comes from az login / env vars.
+		b.WriteString("  azure-native:location: ")
+		b.WriteString(strconv.Quote(region))
+		b.WriteString("\n")
+	case "gcp":
+		b.WriteString("  gcp:region: ")
+		b.WriteString(strconv.Quote(region))
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+func resolveCloud(spec *engine.FlowSpec) (string, string, error) {
+	if len(spec.Apps) == 0 || spec.Apps[0].Cloud == nil {
+		return "", "", fmt.Errorf("cloud provider/region is required")
+	}
+	provider := strings.TrimSpace(strings.ToLower(spec.Apps[0].Cloud.Provider))
+	region := strings.TrimSpace(spec.Apps[0].Cloud.Region)
+	for _, app := range spec.Apps {
+		if app.Cloud == nil {
+			return "", "", fmt.Errorf("app %s is missing cloud block", app.Name)
+		}
+		if strings.ToLower(app.Cloud.Provider) != provider || app.Cloud.Region != region {
+			return "", "", fmt.Errorf("mixed cloud providers/regions are not supported in one pulumi stack")
+		}
+	}
+	return provider, region, nil
+}
+
+func mapResource(resType, provider string) (string, map[string]string, error) {
+	switch provider {
+	case "azure":
+		switch strings.ToLower(resType) {
+		case "azurerm_resource_group":
+			return "azure-native:resources:ResourceGroup", map[string]string{
+				"name": "resourceGroupName",
+			}, nil
+		case "azurerm_virtual_network":
+			return "azure-native:network:VirtualNetwork", map[string]string{
+				"name": "virtualNetworkName",
+			}, nil
+		case "azurerm_subnet":
+			return "azure-native:network:Subnet", map[string]string{
+				"name": "subnetName",
+			}, nil
+		case "azurerm_network_security_group":
+			return "azure-native:network:NetworkSecurityGroup", map[string]string{
+				"name": "networkSecurityGroupName",
+			}, nil
+		case "azurerm_postgresql_flexible_server":
+			return "azure-native:dbforpostgresql:Server", map[string]string{
+				"name": "serverName",
+			}, nil
+		default:
+			return "", nil, fmt.Errorf("no native pulumi mapping for azure resource type %q", resType)
+		}
+	case "aws":
+		switch strings.ToLower(resType) {
+		case "aws_security_group":
+			return "aws:ec2/securityGroup:SecurityGroup", nil, nil
+		case "aws_launch_template":
+			return "aws:ec2/launchTemplate:LaunchTemplate", nil, nil
+		case "aws_s3_bucket":
+			return "aws:s3/bucket:Bucket", map[string]string{
+				"name": "bucket",
+			}, nil
+		default:
+			return "", nil, fmt.Errorf("no native pulumi mapping for aws resource type %q", resType)
+		}
+	case "gcp":
+		return "", nil, fmt.Errorf("native pulumi mapping for gcp resources is not implemented yet")
+	default:
+		return "", nil, fmt.Errorf("unsupported provider %q", provider)
+	}
+}
+
+func mapKey(in string, overrides map[string]string) string {
+	if v, ok := overrides[in]; ok {
+		return v
+	}
+	// snake_case -> camelCase
+	parts := strings.Split(in, "_")
+	if len(parts) == 0 {
+		return in
+	}
+	out := parts[0]
+	for _, p := range parts[1:] {
+		if p == "" {
+			continue
+		}
+		out += strings.ToUpper(p[:1]) + p[1:]
+	}
+	return out
+}
+
+func inferYAMLScalarOrList(raw string) string {
+	v := strings.TrimSpace(raw)
+	lower := strings.ToLower(v)
+	if lower == "true" || lower == "false" || lower == "null" {
+		return lower
+	}
+	if _, err := strconv.ParseFloat(v, 64); err == nil {
+		return v
+	}
+	if strings.HasPrefix(v, "[") && strings.HasSuffix(v, "]") {
+		return normalizeList(v)
+	}
+	return strconv.Quote(strings.Trim(v, `"`))
+}
+
+func normalizeList(v string) string {
+	body := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(v, "["), "]"))
+	if body == "" {
+		return "[]"
+	}
+	parts := splitCSV(body)
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		item := strings.TrimSpace(p)
+		lower := strings.ToLower(item)
+		if lower == "true" || lower == "false" || lower == "null" {
+			out = append(out, lower)
+			continue
+		}
+		if _, err := strconv.ParseFloat(item, 64); err == nil {
+			out = append(out, item)
+			continue
+		}
+		out = append(out, strconv.Quote(strings.Trim(item, `"`)))
+	}
+	return "[" + strings.Join(out, ", ") + "]"
+}
+
+func splitCSV(s string) []string {
+	parts := []string{}
+	var cur strings.Builder
+	inQuotes := false
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if ch == '"' {
+			inQuotes = !inQuotes
+			cur.WriteByte(ch)
+			continue
+		}
+		if ch == ',' && !inQuotes {
+			parts = append(parts, cur.String())
+			cur.Reset()
+			continue
+		}
+		cur.WriteByte(ch)
+	}
+	if cur.Len() > 0 {
+		parts = append(parts, cur.String())
+	}
+	return parts
+}
+
+func sanitize(v string) string {
+	v = strings.ToLower(v)
+	v = strings.ReplaceAll(v, ".", "-")
+	v = strings.ReplaceAll(v, "_", "-")
+	v = strings.ReplaceAll(v, " ", "-")
+	return v
+}
+
+func sortedKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }

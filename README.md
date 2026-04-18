@@ -111,7 +111,8 @@ flow modules clean                 # Clear module cache
 flow version                       # Print CLI version
 ```
 
-Pulumi backend currently runs in compatibility mode using the same generated plan/apply engine as Terraform, so the same `.ufs` code works without backend-specific changes.
+Pulumi backend now runs in native mode using `pulumi preview/up/destroy` (no Terraform execution path).
+Current native Pulumi support targets direct `resource` blocks; `use module` blocks are not yet supported on Pulumi backend.
 `flow plan` and `flow deploy` also update a project-root `.ufstrack` file to track desired/new/existing resources per run.
 GitHub Actions backend reads `yaml` blocks from your `.ufs` and generates `.yml` automatically (no separate YAML language needed).
 
@@ -201,7 +202,7 @@ flowspec/
 │   ├── adapter/                  # Multi-backend adapters
 │   │   ├── adapter.go            # IaCAdapter interface
 │   │   ├── terraform/adapter.go  # Terraform code generator
-│   │   └── pulumi/adapter.go     # Pulumi stub (coming soon)
+│   │   └── pulumi/adapter.go     # Native Pulumi YAML adapter
 │   ├── cli/                      # CLI command handlers
 │   │   ├── cli.go                # Main command router
 │   │   └── config.go             # .flow/config.json manager

@@ -28,7 +28,7 @@ const (
 	modulesDir   = ".flow/modules"
 	modulesJSON  = ".flow/modules.json"
 	ufsTrackFile = ".ufstrack"
-	version      = "1.1.0"
+	version      = "1.2.0"
 )
 
 // Run is the main CLI entrypoint.
@@ -84,7 +84,7 @@ func printUsage() {
 
 func handleVersion() error {
 	fmt.Printf("UniFlow CLI v%s\n", version)
-	fmt.Println("Backend: Terraform (default), Pulumi (compat mode), GitHub Actions (YAML generator)")
+	fmt.Println("Backend: Terraform (default), Pulumi (native), GitHub Actions (YAML generator)")
 	fmt.Println("Parser: Native Go (no Python dependency)")
 	return nil
 }
