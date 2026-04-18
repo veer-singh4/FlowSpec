@@ -45,11 +45,61 @@ app payment-service {
 }
 ```
 
+## Simple Language Mode
+
+You can now write a simpler style with:
+- `let` variables
+- optional `=` assignments
+- optional `as` (alias can be direct)
+- condition expressions (`==`, `!=`, `>`, `<`, `>=`, `<=`, `&&`, `||`, `!`)
+- backend automatic type inference (string/bool/number/array/null)
+
+No explicit type declaration is required in your `.ufs` file.
+
+```ufs
+app demo {
+  cloud azure centralindia
+
+  let env = "prod"
+  let replicas = 2
+
+  func make-subnet {
+    resource azurerm_subnet ${subnet_name} {
+      name = ${subnet_name}
+      resource_group_name = app-rg
+      virtual_network_name = app-vnet
+      address_prefixes ["10.1.1.0/24"]
+    }
+  }
+
+  for subnet_name in ["app-subnet","data-subnet"] {
+    if env == prod && replicas >= 2 {
+      call make-subnet
+    } else {
+      resource azurerm_network_security_group skipped-nsg {
+        name = skipped
+        location = centralindia
+        resource_group_name = app-rg
+      }
+    }
+  }
+}
+```
+
+Notes:
+- `if <expression> { ... } else { ... }` supports comparison and boolean operators.
+- `for <var> in [a,b,c] { ... }` repeats the block and exposes `${var}` (or `${loop.var}`).
+- `func <name> { ... }` defines a reusable block in the same `app`.
+- `call <name>` expands the function block inline.
+- Config lines can be written as `key value` or `key = value`.
+- In Terraform generation, values are auto-detected as bool/number/null/list/string.
+
 ## CLI Commands
 
 ```bash
 flow init                          # Initialize workspace
 flow init --backend pulumi         # Use Pulumi backend
+flow init --backend github-actions # Generate YAML from `yaml` blocks in .ufs
 flow plan   app.ufs                # Preview infrastructure changes
 flow deploy app.ufs                # Apply infrastructure changes
 flow status                        # Show managed resources
@@ -59,6 +109,23 @@ flow modules mappings              # Show available abstract module names
 flow modules update app.ufs        # Re-download modules
 flow modules clean                 # Clear module cache
 flow version                       # Print CLI version
+```
+
+Pulumi backend currently runs in compatibility mode using the same generated plan/apply engine as Terraform, so the same `.ufs` code works without backend-specific changes.
+`flow plan` and `flow deploy` also update a project-root `.ufstrack` file to track desired/new/existing resources per run.
+GitHub Actions backend reads `yaml` blocks from your `.ufs` and generates `.yml` automatically (no separate YAML language needed).
+
+Example YAML block:
+```ufs
+app ci {
+  yaml release {
+    _target .github/workflows/release.yml
+    name "Release Pipeline"
+    on.workflow_dispatch true
+    jobs.build.runs-on ubuntu-latest
+    jobs.build.steps ["checkout","build","deploy"]
+  }
+}
 ```
 
 ## Available Module Mappings

@@ -29,6 +29,13 @@ type ResourceConfig struct {
 	Line   int               `json:"line"`
 }
 
+// YAMLConfig describes a YAML block generated from DSL.
+type YAMLConfig struct {
+	Name   string            `json:"name"`
+	Config map[string]string `json:"config"`
+	Line   int               `json:"line"`
+}
+
 // AppBlock describes a single app declaration in a .ufs file.
 type AppBlock struct {
 	Name      string           `json:"name"`
@@ -36,7 +43,8 @@ type AppBlock struct {
 	Database  string           `json:"database"`
 	Modules   []ModuleConfig   `json:"modules"`
 	Resources []ResourceConfig `json:"resources"`
-	Params    map[string]string  `json:"params"`
+	YAMLs     []YAMLConfig      `json:"yamls"`
+	Params    map[string]string `json:"params"`
 	Line      int               `json:"line"`
 }
 
@@ -70,6 +78,7 @@ func convertSpec(ps *parser.Spec) *FlowSpec {
 			Name:      pa.Name,
 			Modules:   make([]ModuleConfig, 0, len(pa.Modules)),
 			Resources: make([]ResourceConfig, 0, len(pa.Resources)),
+			YAMLs:     make([]YAMLConfig, 0, len(pa.YAMLs)),
 			Params:    pa.Params,
 			Line:      pa.Line,
 		}
@@ -96,6 +105,13 @@ func convertSpec(ps *parser.Spec) *FlowSpec {
 				Alias:  pr.Alias,
 				Config: pr.Config,
 				Line:   pr.Line,
+			})
+		}
+		for _, py := range pa.YAMLs {
+			app.YAMLs = append(app.YAMLs, YAMLConfig{
+				Name:   py.Name,
+				Config: py.Config,
+				Line:   py.Line,
 			})
 		}
 
@@ -143,6 +159,15 @@ func ResolveVariables(spec *FlowSpec) {
 				r.Config[k] = interpolate(v, allParams)
 			}
 		}
+
+		// Interpolate in yaml blocks
+		for j := range app.YAMLs {
+			y := &app.YAMLs[j]
+			y.Name = interpolate(y.Name, allParams)
+			for k, v := range y.Config {
+				y.Config[k] = interpolate(v, allParams)
+			}
+		}
 	}
 }
 
@@ -172,8 +197,8 @@ func BuildSummary(spec *FlowSpec) []string {
 		}
 
 		lines = append(lines,
-			fmt.Sprintf("app=%s cloud=%s/%s modules=%d resources=%d",
-				app.Name, provider, region, len(app.Modules), len(app.Resources)),
+			fmt.Sprintf("app=%s cloud=%s/%s modules=%d resources=%d yamls=%d",
+				app.Name, provider, region, len(app.Modules), len(app.Resources), len(app.YAMLs)),
 		)
 
 		for _, m := range app.Modules {

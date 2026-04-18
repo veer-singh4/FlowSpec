@@ -13,7 +13,7 @@ const (
 
 // Config holds the .flow/config.json settings.
 type Config struct {
-	Backend     string `json:"backend"`      // "terraform" or "pulumi"
+	Backend     string `json:"backend"`      // "terraform", "pulumi", or "github-actions"
 	Registry    string `json:"registry"`      // registry base URL
 	ModuleCache string `json:"module_cache"`  // path to module cache dir
 }
@@ -46,6 +46,9 @@ func LoadConfig() (*Config, error) {
 	// Apply defaults for empty fields
 	if cfg.Backend == "" {
 		cfg.Backend = "terraform"
+	}
+	if cfg.Backend == "github" || cfg.Backend == "github_actions" {
+		cfg.Backend = "github-actions"
 	}
 	if cfg.Registry == "" {
 		cfg.Registry = "https://registry.terraform.io/v1/modules"

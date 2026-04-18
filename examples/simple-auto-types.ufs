@@ -1,0 +1,22 @@
+app simple-auto-types {
+  cloud aws ap-south-1
+
+  let create_extra = true
+  let min_size = 2
+
+  resource aws_security_group web-sg {
+    name = web-sg
+    description = "web security group"
+  }
+
+  if create_extra && min_size >= 2 {
+    resource aws_launch_template web-template {
+      name_prefix = web-
+      image_id = ami-0f5ee92e2d63afc18
+      update_default_version = true
+      default_version = 1
+      user_data = null
+      vpc_security_group_ids = ["sg-1234567890abcdef0"]
+    }
+  }
+}

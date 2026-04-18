@@ -1,0 +1,12 @@
+app github-workflow {
+  cloud aws ap-south-1
+
+  yaml ci-pipeline {
+    _target .github/workflows/ci.yml
+    name "CI Pipeline"
+    on.workflow_dispatch true
+    jobs.build.runs-on ubuntu-latest
+    jobs.build.timeout-minutes 30
+    jobs.build.steps ["checkout","setup-go","test","build"]
+  }
+}

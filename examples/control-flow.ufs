@@ -1,0 +1,27 @@
+app control-flow-demo {
+  cloud azure centralindia
+
+  let env = "prod"
+  let replicas = 2
+
+  func create-subnet {
+    resource azurerm_subnet ${subnet_name} {
+      name = ${subnet_name}
+      resource_group_name = demo-rg
+      virtual_network_name = demo-vnet
+      address_prefixes ["10.10.1.0/24"]
+    }
+  }
+
+  if env == prod && replicas >= 2 {
+    for subnet_name in ["app-subnet","data-subnet"] {
+      call create-subnet
+    }
+  } else {
+    resource azurerm_network_security_group skipped-nsg {
+      name = skipped
+      location = centralindia
+      resource_group_name = demo-rg
+    }
+  }
+}

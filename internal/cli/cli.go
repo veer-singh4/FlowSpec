@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
+	githubactionsadapter "github.com/veer-singh4/FlowSpec/internal/adapter/githubactions"
 	terraformadapter "github.com/veer-singh4/FlowSpec/internal/adapter/terraform"
 	pulumiadapter "github.com/veer-singh4/FlowSpec/internal/adapter/pulumi"
 	"github.com/veer-singh4/FlowSpec/internal/adapter"
@@ -21,10 +23,12 @@ const (
 	flowDir      = ".flow"
 	terraformDir = ".flow/terraform"
 	pulumiDir    = ".flow/pulumi"
+	githubDir    = ".flow/github-actions"
 	stateFile    = ".flow/state.json"
 	modulesDir   = ".flow/modules"
 	modulesJSON  = ".flow/modules.json"
-	version      = "1.0.0"
+	ufsTrackFile = ".ufstrack"
+	version      = "1.1.0"
 )
 
 // Run is the main CLI entrypoint.
@@ -64,7 +68,7 @@ func printUsage() {
 	fmt.Println("Write infrastructure once. Deploy anywhere.")
 	fmt.Println()
 	fmt.Println("Usage:")
-	fmt.Println("  flow init [--backend terraform|pulumi]   Initialize .flow workspace")
+	fmt.Println("  flow init [--backend terraform|pulumi|github-actions]   Initialize .flow workspace")
 	fmt.Println("  flow plan    <file.ufs>                  Preview infrastructure changes")
 	fmt.Println("  flow deploy  <file.ufs>                  Apply infrastructure changes")
 	fmt.Println("  flow destroy                             Destroy all managed resources")
@@ -80,7 +84,7 @@ func printUsage() {
 
 func handleVersion() error {
 	fmt.Printf("UniFlow CLI v%s\n", version)
-	fmt.Println("Backend: Terraform (default), Pulumi (coming soon)")
+	fmt.Println("Backend: Terraform (default), Pulumi (compat mode), GitHub Actions (YAML generator)")
 	fmt.Println("Parser: Native Go (no Python dependency)")
 	return nil
 }
@@ -97,8 +101,12 @@ func handleInit(args []string) error {
 		}
 	}
 
-	if backend != "terraform" && backend != "pulumi" {
-		return fmt.Errorf("unsupported backend: %s (use 'terraform' or 'pulumi')", backend)
+	if backend == "github" || backend == "github_actions" || backend == "github-actions" {
+		backend = "github-actions"
+	}
+
+	if backend != "terraform" && backend != "pulumi" && backend != "github-actions" {
+		return fmt.Errorf("unsupported backend: %s (use 'terraform', 'pulumi', or 'github-actions')", backend)
 	}
 
 	if err := ensureFlowSetup(); err != nil {
@@ -192,6 +200,10 @@ func handlePlan(args []string) error {
 	fmt.Println()
 
 	if len(newResources) == 0 {
+		adpt := getAdapter(cfg)
+		if err := writeUFSTrack("plan", args[0], cfg, adpt.Name(), "no_changes", spec, desired, newResources); err != nil {
+			fmt.Printf("⚠ failed to update %s: %v\n", ufsTrackFile, err)
+		}
 		fmt.Println("✓ No new resources to create")
 		return nil
 	}
@@ -199,6 +211,9 @@ func handlePlan(args []string) error {
 	adpt := getAdapter(cfg)
 	if err := adpt.Plan(filteredSpec); err != nil {
 		return err
+	}
+	if err := writeUFSTrack("plan", args[0], cfg, adpt.Name(), "success", spec, desired, newResources); err != nil {
+		fmt.Printf("⚠ failed to update %s: %v\n", ufsTrackFile, err)
 	}
 
 	fmt.Println()
@@ -269,6 +284,10 @@ func handleDeploy(args []string) error {
 	fmt.Println()
 
 	if len(newResources) == 0 {
+		adpt := getAdapter(cfg)
+		if err := writeUFSTrack("deploy", args[0], cfg, adpt.Name(), "no_changes", spec, desired, newResources); err != nil {
+			fmt.Printf("⚠ failed to update %s: %v\n", ufsTrackFile, err)
+		}
 		fmt.Println("✓ No new resources to create")
 		return nil
 	}
@@ -281,6 +300,9 @@ func handleDeploy(args []string) error {
 	st.Merge(newResources)
 	if err := flowstate.Save(stateFile, st); err != nil {
 		return err
+	}
+	if err := writeUFSTrack("deploy", args[0], cfg, adpt.Name(), "success", spec, desired, newResources); err != nil {
+		fmt.Printf("⚠ failed to update %s: %v\n", ufsTrackFile, err)
 	}
 
 	fmt.Println()
@@ -455,6 +477,12 @@ func ensureFlowSetup() error {
 	if err := os.MkdirAll(terraformDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create %s: %w", terraformDir, err)
 	}
+	if err := os.MkdirAll(pulumiDir, 0o755); err != nil {
+		return fmt.Errorf("failed to create %s: %w", pulumiDir, err)
+	}
+	if err := os.MkdirAll(githubDir, 0o755); err != nil {
+		return fmt.Errorf("failed to create %s: %w", githubDir, err)
+	}
 
 	if _, err := os.Stat(stateFile); errors.Is(err, os.ErrNotExist) {
 		empty := &flowstate.State{Resources: []flowstate.ResourceRecord{}}
@@ -533,9 +561,147 @@ func resolveModules(spec *engine.FlowSpec, cfg *Config) error {
 // getAdapter returns the appropriate IaC adapter based on config.
 func getAdapter(cfg *Config) adapter.IaCAdapter {
 	switch cfg.Backend {
+	case "github-actions":
+		return githubactionsadapter.New(githubDir)
 	case "pulumi":
 		return pulumiadapter.New(pulumiDir)
 	default:
 		return terraformadapter.NewWithCache(terraformDir, cfg.ModuleCache)
 	}
+}
+
+type ufsTrack struct {
+	Version   string        `json:"version"`
+	UpdatedAt string        `json:"updated_at"`
+	Runs      []ufsTrackRun `json:"runs"`
+}
+
+type ufsTrackRun struct {
+	Timestamp string                     `json:"timestamp"`
+	Command   string                     `json:"command"`
+	SpecFile  string                     `json:"spec_file"`
+	Backend   string                     `json:"backend"`
+	Adapter   string                     `json:"adapter"`
+	Status    string                     `json:"status"`
+	Summary   ufsTrackSummary            `json:"summary"`
+	Apps      []string                   `json:"apps"`
+	Desired   []flowstate.ResourceRecord `json:"desired_resources"`
+	New       []flowstate.ResourceRecord `json:"new_resources"`
+	Existing  []flowstate.ResourceRecord `json:"existing_resources"`
+}
+
+type ufsTrackSummary struct {
+	DesiredCount  int `json:"desired_count"`
+	NewCount      int `json:"new_count"`
+	ExistingCount int `json:"existing_count"`
+	AppCount      int `json:"app_count"`
+	ModuleCount   int `json:"module_count"`
+	ResourceCount int `json:"resource_count"`
+}
+
+func writeUFSTrack(
+	command, specFile string,
+	cfg *Config,
+	adapterName, status string,
+	spec *engine.FlowSpec,
+	desired, newResources []flowstate.ResourceRecord,
+) error {
+	track, err := loadUFSTrack(ufsTrackFile)
+	if err != nil {
+		return err
+	}
+	absSpec, _ := filepath.Abs(specFile)
+	appNames, moduleCount, resourceCount := summarizeSpec(spec)
+	existing := subtractResources(desired, newResources)
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	run := ufsTrackRun{
+		Timestamp: now,
+		Command:   command,
+		SpecFile:  absSpec,
+		Backend:   cfg.Backend,
+		Adapter:   adapterName,
+		Status:    status,
+		Summary: ufsTrackSummary{
+			DesiredCount:  len(desired),
+			NewCount:      len(newResources),
+			ExistingCount: len(existing),
+			AppCount:      len(appNames),
+			ModuleCount:   moduleCount,
+			ResourceCount: resourceCount,
+		},
+		Apps:     appNames,
+		Desired:  append([]flowstate.ResourceRecord{}, desired...),
+		New:      append([]flowstate.ResourceRecord{}, newResources...),
+		Existing: existing,
+	}
+
+	track.Version = "1"
+	track.UpdatedAt = now
+	track.Runs = append(track.Runs, run)
+
+	payload, err := json.MarshalIndent(track, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to encode %s: %w", ufsTrackFile, err)
+	}
+	payload = append(payload, '\n')
+	if err := os.WriteFile(ufsTrackFile, payload, 0o644); err != nil {
+		return fmt.Errorf("failed to write %s: %w", ufsTrackFile, err)
+	}
+	return nil
+}
+
+func loadUFSTrack(path string) (*ufsTrack, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return &ufsTrack{Version: "1", Runs: []ufsTrackRun{}}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to read %s: %w", path, err)
+	}
+	if strings.TrimSpace(string(data)) == "" {
+		return &ufsTrack{Version: "1", Runs: []ufsTrackRun{}}, nil
+	}
+
+	var track ufsTrack
+	if err := json.Unmarshal(data, &track); err != nil {
+		return nil, fmt.Errorf("failed to parse %s: %w", path, err)
+	}
+	if track.Runs == nil {
+		track.Runs = []ufsTrackRun{}
+	}
+	if track.Version == "" {
+		track.Version = "1"
+	}
+	return &track, nil
+}
+
+func summarizeSpec(spec *engine.FlowSpec) ([]string, int, int) {
+	if spec == nil {
+		return []string{}, 0, 0
+	}
+	apps := make([]string, 0, len(spec.Apps))
+	moduleCount := 0
+	resourceCount := 0
+	for _, app := range spec.Apps {
+		apps = append(apps, app.Name)
+		moduleCount += len(app.Modules)
+		resourceCount += len(app.Resources)
+	}
+	return apps, moduleCount, resourceCount
+}
+
+func subtractResources(all, toRemove []flowstate.ResourceRecord) []flowstate.ResourceRecord {
+	remove := map[string]bool{}
+	for _, r := range toRemove {
+		remove[r.ID] = true
+	}
+	out := make([]flowstate.ResourceRecord, 0, len(all))
+	for _, r := range all {
+		if remove[r.ID] {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
 }

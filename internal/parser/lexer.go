@@ -30,6 +30,14 @@ const (
 	TokenNewline
 	TokenParam
 	TokenInclude
+	TokenIf
+	TokenElse
+	TokenFor
+	TokenIn
+	TokenFunc
+	TokenCall
+	TokenLet
+	TokenYAML
 )
 
 func (t TokenType) String() string {
@@ -74,6 +82,22 @@ func (t TokenType) String() string {
 		return "PARAMS"
 	case TokenInclude:
 		return "INCLUDE"
+	case TokenIf:
+		return "IF"
+	case TokenElse:
+		return "ELSE"
+	case TokenFor:
+		return "FOR"
+	case TokenIn:
+		return "IN"
+	case TokenFunc:
+		return "FUNC"
+	case TokenCall:
+		return "CALL"
+	case TokenLet:
+		return "LET"
+	case TokenYAML:
+		return "YAML"
 	default:
 		return fmt.Sprintf("UNKNOWN(%d)", int(t))
 	}
@@ -293,6 +317,22 @@ func (l *Lexer) readIdentOrKeyword(line, col int) (Token, error) {
 		return Token{Type: TokenParam, Value: word, Line: line, Col: col}, nil
 	case "include":
 		return Token{Type: TokenInclude, Value: word, Line: line, Col: col}, nil
+	case "if":
+		return Token{Type: TokenIf, Value: word, Line: line, Col: col}, nil
+	case "else":
+		return Token{Type: TokenElse, Value: word, Line: line, Col: col}, nil
+	case "for":
+		return Token{Type: TokenFor, Value: word, Line: line, Col: col}, nil
+	case "in":
+		return Token{Type: TokenIn, Value: word, Line: line, Col: col}, nil
+	case "func":
+		return Token{Type: TokenFunc, Value: word, Line: line, Col: col}, nil
+	case "call":
+		return Token{Type: TokenCall, Value: word, Line: line, Col: col}, nil
+	case "let":
+		return Token{Type: TokenLet, Value: word, Line: line, Col: col}, nil
+	case "yaml":
+		return Token{Type: TokenYAML, Value: word, Line: line, Col: col}, nil
 	case "true", "false":
 		return Token{Type: TokenBool, Value: word, Line: line, Col: col}, nil
 	default:
@@ -337,9 +377,9 @@ func isIdentChar(ch rune) bool {
 }
 
 func isValueChar(ch rune) bool {
-	return unicode.IsLetter(ch) || unicode.IsDigit(ch) || ch == '_' || ch == '-' || ch == '.' || ch == '/' || ch == ':' || ch == '$' || ch == '{' || ch == '}'
+	return unicode.IsLetter(ch) || unicode.IsDigit(ch) || ch == '_' || ch == '-' || ch == '.' || ch == '/' || ch == ':' || ch == '$' || ch == '{' || ch == '}' || ch == '=' || ch == '!' || ch == '>' || ch == '<' || ch == '&' || ch == '|' || ch == '(' || ch == ')'
 }
 
 func isBareValueChar(ch rune) bool {
-	return unicode.IsLetter(ch) || unicode.IsDigit(ch) || ch == '_' || ch == '-' || ch == '.' || ch == '/' || ch == ':' || ch == '$' || ch == '{' || ch == '}'
+	return unicode.IsLetter(ch) || unicode.IsDigit(ch) || ch == '_' || ch == '-' || ch == '.' || ch == '/' || ch == ':' || ch == '$' || ch == '{' || ch == '}' || ch == '=' || ch == '!' || ch == '>' || ch == '<' || ch == '&' || ch == '|' || ch == '(' || ch == ')'
 }

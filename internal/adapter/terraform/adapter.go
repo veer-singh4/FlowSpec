@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/veer-singh4/FlowSpec/internal/adapter"
@@ -335,7 +336,17 @@ provider "google" {
 
 func terraformLiteral(v string) string {
 	trimmed := strings.TrimSpace(v)
-	if trimmed == "true" || trimmed == "false" || isNumeric(trimmed) {
+	if trimmed == "" {
+		return `""`
+	}
+	lower := strings.ToLower(trimmed)
+	if lower == "true" || lower == "false" || lower == "null" {
+		return lower
+	}
+	if isNumber(trimmed) {
+		return trimmed
+	}
+	if isQuoted(trimmed) {
 		return trimmed
 	}
 	if strings.HasPrefix(trimmed, "[") || strings.HasPrefix(trimmed, "{") {
@@ -344,19 +355,15 @@ func terraformLiteral(v string) string {
 	return fmt.Sprintf("%q", trimmed)
 }
 
-func isNumeric(v string) bool {
-	if v == "" {
-		return false
+func isNumber(v string) bool {
+	if _, err := strconv.ParseFloat(v, 64); err == nil {
+		return true
 	}
-	for i, c := range v {
-		if c == '-' && i == 0 {
-			continue
-		}
-		if c < '0' || c > '9' {
-			return false
-		}
-	}
-	return true
+	return false
+}
+
+func isQuoted(v string) bool {
+	return len(v) >= 2 && strings.HasPrefix(v, `"`) && strings.HasSuffix(v, `"`)
 }
 
 func sortedKeys(m map[string]string) []string {
